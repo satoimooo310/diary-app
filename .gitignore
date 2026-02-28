@@ -9,3 +9,6 @@ credentials.json
 # Pythonの一時ファイル
 __pycache__/
 *.pyc
+
+# 運用スクリプト（絶対にアップロードしない）
+update_github.bat
