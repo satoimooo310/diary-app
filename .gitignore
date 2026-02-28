@@ -1,0 +1,11 @@
+# 認証情報ファイル（絶対にアップロードしない）
+client_secret.json
+token.json
+credentials.json
+
+# Streamlitのシークレットファイル
+.streamlit/
+
+# Pythonの一時ファイル
+__pycache__/
+*.pyc
