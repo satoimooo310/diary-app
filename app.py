@@ -54,33 +54,31 @@ if st.sidebar.button("💾 これを日記として保存"):
         with st.spinner("日記を生成し、スプレッドシートへ保存しています..."):
             try:
                 # ------------------------------------------
-                # 1. 認証フロー (WIF優先 -> OAuthフォールバック)
+                # 1. 認証フロー (Streamlit CloudではOAuthを優先)
                 # ------------------------------------------
                 scopes = [
                     'https://www.googleapis.com/auth/spreadsheets',
                     'https://www.googleapis.com/auth/drive'
                 ]
                 
-                try:
-                    # まずはWIF（デフォルト認証）を試行
+                # Streamlit Cloud環境（Secretsが存在する）場合は即座にOAuthを使用する
+                # これにより、GCPメタデータサーバーへの無駄なアクセス（タイムアウトエラー）を防止
+                if "token" in st.secrets and "client_secret" in st.secrets:
+                    if not os.path.exists("client_secret.json"):
+                        with open("client_secret.json", "w", encoding="utf-8") as f:
+                            f.write(st.secrets["client_secret"])
+                    if not os.path.exists("token.json"):
+                        with open("token.json", "w", encoding="utf-8") as f:
+                            f.write(st.secrets["token"])
+                    
+                    client = gspread.oauth(
+                        credentials_filename='client_secret.json',
+                        authorized_user_filename='token.json'
+                    )
+                else:
+                    # ローカル環境などの場合はWIF（デフォルト認証）を試行
                     credentials, project_id = google.auth.default(scopes=scopes)
                     client = gspread.authorize(credentials)
-                except Exception as default_auth_err:
-                    # WIF設定が存在しない場合（Streamlit Cloud等）、前回成功したOAuth（Secrets）方式にフォールバック
-                    if "token" in st.secrets and "client_secret" in st.secrets:
-                        if not os.path.exists("client_secret.json"):
-                            with open("client_secret.json", "w", encoding="utf-8") as f:
-                                f.write(st.secrets["client_secret"])
-                        if not os.path.exists("token.json"):
-                            with open("token.json", "w", encoding="utf-8") as f:
-                                f.write(st.secrets["token"])
-                        
-                        client = gspread.oauth(
-                            credentials_filename='client_secret.json',
-                            authorized_user_filename='token.json'
-                        )
-                    else:
-                        raise Exception("WIFの認証情報が見つからず、フォールバック用のOAuth Secretsもありません。\n詳細: " + str(default_auth_err))
                 
                 # 指定シートを開く
                 if "https://" in spreadsheet_url:
