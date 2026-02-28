@@ -10,21 +10,11 @@ st.set_page_config(page_title="対話型AI日記アプリ", page_icon="📓", la
 
 st.title("対話型AI日記アプリ")
 
-# --- サイドバー (Sidebar) ---
-st.sidebar.header("⚙️ 設定")
-gemini_api_key = st.sidebar.text_input("Gemini APIキー", type="password")
-spreadsheet_url = st.sidebar.text_input("スプレッドシートのURLまたはID")
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("Google OAuth JSONキー (client_secret.json)")
-st.sidebar.write("※ アップロードすると `client_secret.json` として保存されます")
-uploaded_file = st.sidebar.file_uploader("JSONファイルをアップロード", type=["json"])
-
-if uploaded_file is not None:
-    # アップロードされたファイルを client_secret.json として保存
-    with open("client_secret.json", "wb") as f:
-        f.write(uploaded_file.getbuffer())
-    st.sidebar.success("client_secret.json を保存しました。")
+# --- 認証情報の読み込み (個人使用のためサイドバーUIは削除) ---
+# Streamlit CloudのSecretsから自動的に読み込みます。
+# ※「spreadsheet_url = "..."」という形でもう一つSecretsに追加する必要があります。
+gemini_api_key = st.secrets.get("gemini_api_key", "")
+spreadsheet_url = st.secrets.get("spreadsheet_url", "")
 
 # --- システムプロンプト設定 ---
 SYSTEM_PROMPT = """あなたは極めて冷静で合理的、かつ忖度のないリアリストなプロのアドバイザーです。
