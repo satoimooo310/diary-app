@@ -53,16 +53,33 @@ if st.sidebar.button("💾 これを日記として保存"):
         with st.spinner("日記を生成し、スプレッドシートへ保存しています..."):
             try:
                 # ------------------------------------------
-                # 1. WIF経由の認証フロー (google-auth の default credentials)
+                # 1. 認証フロー (WIF優先 -> OAuthフォールバック)
                 # ------------------------------------------
-                # ※ローカル環境で試す場合は gcloud auth application-default login 必要
-                # ※Streamlit CloudのAWS/GCP WIF環境などであれば自動取得されます
                 scopes = [
                     'https://www.googleapis.com/auth/spreadsheets',
                     'https://www.googleapis.com/auth/drive'
                 ]
-                credentials, project_id = google.auth.default(scopes=scopes)
-                client = gspread.authorize(credentials)
+                
+                try:
+                    # まずはWIF（デフォルト認証）を試行
+                    credentials, project_id = google.auth.default(scopes=scopes)
+                    client = gspread.authorize(credentials)
+                except Exception as default_auth_err:
+                    # WIF設定が存在しない場合（Streamlit Cloud等）、前回成功したOAuth（Secrets）方式にフォールバック
+                    if "token" in st.secrets and "client_secret" in st.secrets:
+                        if not os.path.exists("client_secret.json"):
+                            with open("client_secret.json", "w", encoding="utf-8") as f:
+                                f.write(st.secrets["client_secret"])
+                        if not os.path.exists("token.json"):
+                            with open("token.json", "w", encoding="utf-8") as f:
+                                f.write(st.secrets["token"])
+                        
+                        client = gspread.oauth(
+                            credentials_filename='client_secret.json',
+                            authorized_user_filename='token.json'
+                        )
+                    else:
+                        raise Exception("WIFの認証情報が見つからず、フォールバック用のOAuth Secretsもありません。\n詳細: " + str(default_auth_err))
                 
                 # 指定シートを開く
                 if "https://" in spreadsheet_url:
