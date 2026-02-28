@@ -1,116 +1,184 @@
 import streamlit as st
 import google.generativeai as genai
 import gspread
+import google.auth
+import os
 import datetime
 import json
-import os
 
-# ページ設定
+# ==========================================
+# ページ初期設定
+# ==========================================
 st.set_page_config(page_title="対話型AI日記アプリ", page_icon="📓", layout="wide")
+st.title("📓 対話型AI日記アプリ (チャット型・WIF認証版)")
 
-st.title("対話型AI日記アプリ")
+# ==========================================
+# 秘密情報の読み込み
+# ==========================================
+gemini_api_key = st.secrets.get("gemini_api_key", os.environ.get("GEMINI_API_KEY", ""))
+spreadsheet_url = st.secrets.get("spreadsheet_url", os.environ.get("SPREADSHEET_URL", ""))
 
-# --- 認証情報の読み込み (個人使用のためサイドバーUIは削除) ---
-# Streamlit CloudのSecretsから自動的に読み込みます。
-# ※「spreadsheet_url = "..."」という形でもう一つSecretsに追加する必要があります。
-gemini_api_key = st.secrets.get("gemini_api_key", "")
-spreadsheet_url = st.secrets.get("spreadsheet_url", "")
+if gemini_api_key:
+    genai.configure(api_key=gemini_api_key)
+else:
+    st.warning("⚠️ Gemini APIキーが設定されていません。Secretsを確認してください。")
 
-# --- システムプロンプト設定 ---
-SYSTEM_PROMPT = """あなたは極めて冷静で合理的、かつ忖度のないリアリストなプロのアドバイザーです。
-ユーザーが提供したチャットログから、以下の2つを生成してください。
-
-1. 今日の要約: 140文字以内で、事実ベースで無駄なく客観的にまとめること。
-2. 鋭い分析: 100文字以内で、一切の忖度なしに、冷静かつ合理的な分析と今後の改善点やアドバイスを提供すること。感情的な慰めは不要。
-
-必ず以下のJSONフォーマットでのみ出力してください:
-{
-  "summary": "今日の要約...",
-  "analysis": "鋭い分析..."
-}
+# ==========================================
+# キャラ設定（システムプロンプト）
+# ==========================================
+SYSTEM_PROMPT = """あなたは完全な客観性と戦略的視点を持つ、成長のための真実を語るアドバイザーです。
+ユーザーが語る1日の出来事や思考に対して、感情的な慰めや無駄な共感を一切排除し、事実関係の整理と戦略的な改善点を指摘してください。
+トーンは極めて冷静で合理的、かつ忖度のないリアリストを維持し、次の一手を示唆してください。
 """
 
-def generate_diary(api_key, chat_log):
-    genai.configure(api_key=api_key)
-    model = genai.GenerativeModel(
-        'gemini-2.5-flash',
-        system_instruction=SYSTEM_PROMPT,
-        generation_config={"response_mime_type": "application/json"}
-    )
-    response = model.generate_content(chat_log)
-    return json.loads(response.text)
+# ==========================================
+# セッション状態（チャット履歴）の初期化
+# ==========================================
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-def save_to_spreadsheet(sheet_url, date_str, summary, analysis):
-    # クラウド（Streamlit Secrets）から認証情報を読み込むか、ローカルファイルを使うか分岐
-    if "gcp_service_account" in st.secrets:
-        # Streamlit Cloud環境: Secretsから読み込む (Service Account方式に戻すのが一番確実で簡単)
-        # 今回はOAuthで進めたので、OAuthのSecretsを使います
-        pass # 下で詳細実装
-        
-    # === 修正箇所: Secrets対応 OAuth ===
-    # Streamlit CloudのSecretsに値があれば、一時ファイルを作成してそれを使用する
-    import json
-    import os
-    
-    # client_secret.json の用意
-    if "client_secret" in st.secrets:
-        with open("client_secret.json", "w") as f:
-            f.write(st.secrets["client_secret"])
-            
-    # token.json の用意
-    if "token" in st.secrets:
-        with open("token.json", "w") as f:
-            f.write(st.secrets["token"])
+# ==========================================
+# サイドバー: 匂い入力と保存ボタン
+# ==========================================
+st.sidebar.header("🌸 今日の記録オプション")
+scent_input = st.sidebar.text_input("今日の匂い (Scent)", placeholder="例: 雨上がり、コーヒーの香り")
 
-    client = gspread.oauth(
-        credentials_filename='client_secret.json',
-        authorized_user_filename='token.json'
-    )
-    
-    # URLかIDかで開き方を分ける
-    if "https://" in sheet_url:
-        sheet = client.open_by_url(sheet_url).sheet1
-    else:
-        sheet = client.open_by_key(sheet_url).sheet1
-        
-    # [日付, 今日の要約, 客観的アドバイザーによる鋭い分析] を追記
-    sheet.append_row([date_str, summary, analysis])
-
-
-# --- メイン画面 (Main) ---
-st.write("一日のチャットログ（行動履歴や考え）を以下に貼り付けてください。")
-chat_input = st.text_area("チャットログ", height=250)
-
-if st.button("生成と保存"):
-    if not gemini_api_key:
-        st.error("サイドバーからGemini APIキーを入力してください。")
+st.sidebar.markdown("---")
+if st.sidebar.button("💾 これを日記として保存"):
+    if not st.session_state.messages:
+        st.sidebar.error("会話履歴がありません。会話してから保存してください。")
     elif not spreadsheet_url:
-        st.error("サイドバーからスプレッドシートのURLまたはIDを入力してください。")
-    elif not chat_input.strip():
-        st.error("チャットログを入力してください。")
-    elif not st.secrets.get("token") and not os.path.exists("client_secret.json") and not os.path.exists("token.json"):
-        st.error("ローカル環境の場合はOAuthのJSONキー(client_secret.json)が必要です。クラウド環境の場合はSecretsにtokenを設定してください。")
+        st.sidebar.error("スプレッドシートのURLがSecretsに登録されていません。")
     else:
-        with st.spinner("AIがログを分析し、スプレッドシートへの保存を試みています...（初回はブラウザでGoogle認証画面が開く場合があります）"):
+        with st.spinner("日記を生成し、スプレッドシートへ保存しています..."):
             try:
-                # Geminiで生成
-                result = generate_diary(gemini_api_key, chat_input)
-                summary = result.get("summary", "要約の生成に失敗しました。")
-                analysis = result.get("analysis", "分析の生成に失敗しました。")
+                # ------------------------------------------
+                # 1. WIF経由の認証フロー (google-auth の default credentials)
+                # ------------------------------------------
+                # ※ローカル環境で試す場合は gcloud auth application-default login 必要
+                # ※Streamlit CloudのAWS/GCP WIF環境などであれば自動取得されます
+                scopes = [
+                    'https://www.googleapis.com/auth/spreadsheets',
+                    'https://www.googleapis.com/auth/drive'
+                ]
+                credentials, project_id = google.auth.default(scopes=scopes)
+                client = gspread.authorize(credentials)
                 
-                # スプレッドシートへ保存
-                today_str = datetime.datetime.now().strftime("%Y-%m-%d")
-                save_to_spreadsheet(spreadsheet_url, today_str, summary, analysis)
+                # 指定シートを開く
+                if "https://" in spreadsheet_url:
+                    sheet = client.open_by_url(spreadsheet_url).sheet1
+                else:
+                    sheet = client.open_by_key(spreadsheet_url).sheet1
+
+                # ------------------------------------------
+                # 2. 会話履歴を一つのテキストにまとめる
+                # ------------------------------------------
+                conversation_text = ""
+                for msg in st.session_state.messages:
+                    role_name = "User" if msg["role"] == "user" else "Advisor"
+                    conversation_text += f"{role_name}: {msg['content']}\n"
+
+                # ------------------------------------------
+                # 3. 保存用のサマリ生成（JSON形式強制）
+                # ------------------------------------------
+                summary_prompt = f"""
+以下の「対話履歴」と「本日の匂いデータ」に基づき、指定のJSON形式で出力してください。
+匂いデータ: {scent_input if scent_input else "記録なし"}
+
+【対話履歴】
+{conversation_text}
+
+出力するJSONのキーは以下の2つのみにしてください：
+1. "content": 日記内容（対話から読み取れる情景描写を重視した内容。起こった事実と環境を描写。）
+2. "analysis": 冷静な分析（客観的な視点からのフィードバック。成長のための真実を語ること。）
+"""
+                model_json = genai.GenerativeModel('gemini-2.5-flash', generation_config={"response_mime_type": "application/json"})
+                resp = model_json.generate_content(summary_prompt)
+                result_json = json.loads(resp.text)
                 
-                # 結果表示
-                st.subheader("📝 今日の要約")
-                st.write(summary)
+                date_str = datetime.datetime.now().strftime("%Y-%m-%d")
+                content = result_json.get("content", "内容の生成に失敗しました。")
+                analysis = result_json.get("analysis", "分析の生成に失敗しました。")
+                scent_val = scent_input if scent_input else "なし"
                 
-                st.subheader("🧐 アドバイザーによる鋭い分析")
-                st.write(analysis)
+                # ------------------------------------------
+                # 4. スプレッドシートへ追記: [日付, 日記内容(情景描写), 冷静な分析, 匂いの記録]
+                # ------------------------------------------
+                sheet.append_row([date_str, content, analysis, scent_val])
                 
-                st.markdown("---")
-                st.success("記録完了。明日もこの調子で。")
+                st.sidebar.success("✅ スプレッドシートへの保存が完了しました！")
                 
+                # 動作確認用エクスパンダー
+                with st.sidebar.expander("保存されたデータ詳細"):
+                    st.write("**日付:**", date_str)
+                    st.write("**情景描写:**", content)
+                    st.write("**冷静な分析:**", analysis)
+                    st.write("**匂い:**", scent_val)
+                    
             except Exception as e:
-                st.error(f"エラーが発生しました: {e}")
+                st.sidebar.error(f"⚠️ エラーが発生しました:\n{e}")
+
+# ==========================================
+# メイン画面: チャットUI
+# ==========================================
+# 過去の会話履歴を描画
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
+
+# --- 音声入力とテキスト入力 ---
+st.markdown("---")
+st.write("▼ 文字入力、または音声で一日の出来事を話してください。")
+
+# st.audio_input は Streamlit 1.36 以降で動作します。
+user_audio = st.audio_input("音声で入力（🎙️）")
+user_text = st.chat_input("文字で入力して会話...")
+
+# 送信処理
+input_prompt = ""
+media_part = None
+
+# 文字優先、なければ音声
+if user_text:
+    input_prompt = user_text
+elif user_audio:
+    # 音声をGeminiが直接解析できるようにMediaパートを作成
+    input_prompt = "（音声データが送信されました）この音声を文字起こしし、そこから読み取れる内容について私に客観的なアドバイスをしてください。"
+    media_part = {
+        "mime_type": "audio/wav", 
+        "data": user_audio.read()
+    }
+
+if input_prompt:
+    # 1. ユーザー発言を画面に表示＆履歴保存
+    with st.chat_message("user"):
+        st.write(user_text if user_text else "🎵 音声メッセージを送信しました")
+    
+    st.session_state.messages.append({
+        "role": "user", 
+        "content": user_text if user_text else "（音声データ）"
+    })
+    
+    # 2. Geminiの思考・応答プロセス
+    with st.chat_message("assistant"):
+        with st.spinner("冷静に分析中..."):
+            model_chat = genai.GenerativeModel('gemini-2.5-flash', system_instruction=SYSTEM_PROMPT)
+            
+            # Geminiのstart_chatには過去履歴(Audioなどは文字に丸めているのでテキストとして)を渡す
+            history_gemini = []
+            for msg in st.session_state.messages[:-1]: # 直前の発言以外
+                gemini_role = "user" if msg["role"] == "user" else "model"
+                history_gemini.append({"role": gemini_role, "parts": [msg["content"]]})
+                
+            chat_session = model_chat.start_chat(history=history_gemini)
+            
+            # 音声がある場合はメディア付きで送信
+            if media_part:
+                response = chat_session.send_message([media_part, input_prompt])
+            else:
+                response = chat_session.send_message(input_prompt)
+                
+            st.write(response.text)
+            
+            # アシスタントの応答を履歴保存
+            st.session_state.messages.append({"role": "assistant", "content": response.text})
