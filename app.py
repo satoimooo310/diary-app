@@ -41,6 +41,8 @@ if "sentiment_score" not in st.session_state:
     st.session_state.sentiment_score = 0.0
 if "sentiment_reason" not in st.session_state:
     st.session_state.sentiment_reason = ""
+if "processed_audio" not in st.session_state:
+    st.session_state.processed_audio = None
 
 # ==========================================
 # サイドバー: 匂い入力と保存ボタン
@@ -184,16 +186,19 @@ if user_text:
     input_prompt = user_text
     display_text = user_text
 elif user_audio:
-    with st.spinner("音声を文字起こし中...🎙️"):
-        media_part = {
-            "mime_type": "audio/wav", 
-            "data": user_audio.read()
-        }
-        model_transcribe = genai.GenerativeModel('gemini-2.5-flash')
-        resp = model_transcribe.generate_content([media_part, "この音声をそのまま文字起こししてください。文字起こし結果のみを出力してください。"])
-        transcribed_text = resp.text.strip()
-    input_prompt = transcribed_text
-    display_text = f"🎙️ {transcribed_text}"
+    audio_bytes = user_audio.getvalue()
+    if st.session_state.processed_audio != audio_bytes:
+        with st.spinner("音声を文字起こし中...🎙️"):
+            media_part = {
+                "mime_type": "audio/wav", 
+                "data": audio_bytes
+            }
+            model_transcribe = genai.GenerativeModel('gemini-2.5-flash')
+            resp = model_transcribe.generate_content([media_part, "この音声をそのまま文字起こししてください。文字起こし結果のみを出力してください。"])
+            transcribed_text = resp.text.strip()
+        st.session_state.processed_audio = audio_bytes
+        input_prompt = transcribed_text
+        display_text = f"🎙️ {transcribed_text}"
 
 if input_prompt:
     # 1. ユーザー発言を画面に表示＆履歴保存
