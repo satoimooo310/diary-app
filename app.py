@@ -88,8 +88,8 @@ if st.button("生成と保存"):
         st.error("サイドバーからスプレッドシートのURLまたはIDを入力してください。")
     elif not chat_input.strip():
         st.error("チャットログを入力してください。")
-    elif not os.path.exists("client_secret.json") and not os.path.exists("token.json"):
-        st.error("サイドバーからOAuthのJSONキー(client_secret.json)をアップロードしてください。")
+    elif not st.secrets.get("token") and not os.path.exists("client_secret.json") and not os.path.exists("token.json"):
+        st.error("ローカル環境の場合はOAuthのJSONキー(client_secret.json)が必要です。クラウド環境の場合はSecretsにtokenを設定してください。")
     else:
         with st.spinner("AIがログを分析し、スプレッドシートへの保存を試みています...（初回はブラウザでGoogle認証画面が開く場合があります）"):
             try:
