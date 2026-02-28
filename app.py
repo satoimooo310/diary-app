@@ -29,7 +29,7 @@ else:
 SYSTEM_PROMPT = """あなたは完全な客観性と戦略的視点を持つ、成長のための真実を語るアドバイザーです。
 ユーザーが語る1日の出来事や思考に対して、感情的な慰めや無駄な共感を一切排除し、事実関係の整理と戦略的な改善点を指摘してください。
 トーンは極めて冷静で合理的、かつ忖度のないリアリストを維持し、次の一手を示唆してください。
-返答は必ず【1000文字以内】に収めてください。無駄な長文は不要です。
+返答は必ず【300文字以内】に収めてください。無駄な長文は不要です。
 """
 
 # ==========================================
@@ -106,7 +106,7 @@ if st.sidebar.button("💾 これを日記として保存"):
 
 出力するJSONのキーは以下の2つのみにしてください：
 1. "content": 日記内容（対話から読み取れる情景描写を重視した内容。起こった事実と環境を描写。）
-2. "analysis": 冷静な分析（客観的な視点からのフィードバック。成長のための真実を語ること。必ず最大【1000文字以内】で出力すること。）
+2. "analysis": 冷静な分析（客観的な視点からのフィードバック。成長のための真実を語ること。必ず最大【300文字以内】で出力すること。）
 """
                 model_json = genai.GenerativeModel('gemini-2.5-flash', generation_config={"response_mime_type": "application/json"})
                 resp = model_json.generate_content(summary_prompt)
@@ -117,16 +117,24 @@ if st.sidebar.button("💾 これを日記として保存"):
                 analysis = result_json.get("analysis", "分析の生成に失敗しました。")
                 scent_val = scent_input if scent_input else "なし"
                 
+                # 生のユーザー発言をまとめる
+                raw_inputs = ""
+                for msg in st.session_state.messages:
+                    if msg["role"] == "user":
+                        raw_inputs += msg['content'] + "\n\n"
+                raw_inputs = raw_inputs.strip()
+                
                 # ------------------------------------------
-                # 4. スプレッドシートへ追記: [日付, 日記内容(情景描写), 冷静な分析, 匂いの記録]
+                # 4. スプレッドシートへ追記: [日付, 生の入力, 日記内容(情景描写), 冷静な分析, 匂いの記録]
                 # ------------------------------------------
-                sheet.append_row([date_str, content, analysis, scent_val])
+                sheet.append_row([date_str, raw_inputs, content, analysis, scent_val])
                 
                 st.sidebar.success("✅ スプレッドシートへの保存が完了しました！")
                 
                 # 動作確認用エクスパンダー
                 with st.sidebar.expander("保存されたデータ詳細"):
                     st.write("**日付:**", date_str)
+                    st.write("**生の入力:**", raw_inputs)
                     st.write("**情景描写:**", content)
                     st.write("**冷静な分析:**", analysis)
                     st.write("**匂い:**", scent_val)
@@ -152,27 +160,31 @@ user_text = st.chat_input("文字で入力して会話...")
 
 # 送信処理
 input_prompt = ""
-media_part = None
 
 # 文字優先、なければ音声
 if user_text:
     input_prompt = user_text
+    display_text = user_text
 elif user_audio:
-    # 音声をGeminiが直接解析できるようにMediaパートを作成
-    input_prompt = "（音声データが送信されました）この音声を文字起こしし、そこから読み取れる内容について私に客観的なアドバイスをしてください。"
-    media_part = {
-        "mime_type": "audio/wav", 
-        "data": user_audio.read()
-    }
+    with st.spinner("音声を文字起こし中...🎙️"):
+        media_part = {
+            "mime_type": "audio/wav", 
+            "data": user_audio.read()
+        }
+        model_transcribe = genai.GenerativeModel('gemini-2.5-flash')
+        resp = model_transcribe.generate_content([media_part, "この音声をそのまま文字起こししてください。文字起こし結果のみを出力してください。"])
+        transcribed_text = resp.text.strip()
+    input_prompt = transcribed_text
+    display_text = f"🎙️ {transcribed_text}"
 
 if input_prompt:
     # 1. ユーザー発言を画面に表示＆履歴保存
     with st.chat_message("user"):
-        st.write(user_text if user_text else "🎵 音声メッセージを送信しました")
+        st.write(display_text)
     
     st.session_state.messages.append({
         "role": "user", 
-        "content": user_text if user_text else "（音声データ）"
+        "content": input_prompt
     })
     
     # 2. Geminiの思考・応答プロセス
@@ -180,7 +192,7 @@ if input_prompt:
         with st.spinner("冷静に分析中..."):
             model_chat = genai.GenerativeModel('gemini-2.5-flash', system_instruction=SYSTEM_PROMPT)
             
-            # Geminiのstart_chatには過去履歴(Audioなどは文字に丸めているのでテキストとして)を渡す
+            # Geminiのstart_chatには過去履歴を渡す
             history_gemini = []
             for msg in st.session_state.messages[:-1]: # 直前の発言以外
                 gemini_role = "user" if msg["role"] == "user" else "model"
@@ -188,11 +200,7 @@ if input_prompt:
                 
             chat_session = model_chat.start_chat(history=history_gemini)
             
-            # 音声がある場合はメディア付きで送信
-            if media_part:
-                response = chat_session.send_message([media_part, input_prompt])
-            else:
-                response = chat_session.send_message(input_prompt)
+            response = chat_session.send_message(input_prompt)
                 
             st.write(response.text)
             
