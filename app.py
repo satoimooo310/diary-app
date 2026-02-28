@@ -105,7 +105,7 @@ if st.sidebar.button("💾 これを日記として保存"):
 {conversation_text}
 
 出力するJSONのキーは以下の2つのみにしてください：
-1. "content": 日記内容（対話から読み取れる情景描写を重視した内容。起こった事実と環境を描写。）
+1. "content": 発言の要約（ユーザーの入力内容から読み取れる出来事と思考の客観的で分かりやすい要約。）
 2. "analysis": 冷静な分析（客観的な視点からのフィードバック。成長のための真実を語ること。必ず最大【300文字以内】で出力すること。）
 """
                 model_json = genai.GenerativeModel('gemini-2.5-flash', generation_config={"response_mime_type": "application/json"})
@@ -125,7 +125,7 @@ if st.sidebar.button("💾 これを日記として保存"):
                 raw_inputs = raw_inputs.strip()
                 
                 # ------------------------------------------
-                # 4. スプレッドシートへ追記: [日付, 生の入力, 日記内容(情景描写), 冷静な分析, 匂いの記録]
+                # 4. スプレッドシートへ追記: [日付, 生の入力, 発言の要約, 冷静な分析, 匂いの記録]
                 # ------------------------------------------
                 sheet.append_row([date_str, raw_inputs, content, analysis, scent_val])
                 
@@ -135,7 +135,7 @@ if st.sidebar.button("💾 これを日記として保存"):
                 with st.sidebar.expander("保存されたデータ詳細"):
                     st.write("**日付:**", date_str)
                     st.write("**生の入力:**", raw_inputs)
-                    st.write("**情景描写:**", content)
+                    st.write("**発言の要約:**", content)
                     st.write("**冷静な分析:**", analysis)
                     st.write("**匂い:**", scent_val)
                     
