@@ -182,23 +182,34 @@ user_text = st.chat_input("文字で入力して会話...")
 input_prompt = ""
 
 # 文字優先、なければ音声
-if user_text:
-    input_prompt = user_text
-    display_text = user_text
+if user_text is not None:
+    if user_text.strip() == "":
+        st.warning("テキストを入力してください")
+    else:
+        input_prompt = user_text
+        display_text = user_text
 elif user_audio:
     audio_bytes = user_audio.getvalue()
     if st.session_state.processed_audio != audio_bytes:
         with st.spinner("音声を文字起こし中...🎙️"):
-            media_part = {
-                "mime_type": "audio/wav", 
-                "data": audio_bytes
-            }
-            model_transcribe = genai.GenerativeModel('gemini-2.5-flash')
-            resp = model_transcribe.generate_content([media_part, "この音声をそのまま文字起こししてください。文字起こし結果のみを出力してください。"])
-            transcribed_text = resp.text.strip()
-        st.session_state.processed_audio = audio_bytes
-        input_prompt = transcribed_text
-        display_text = f"🎙️ {transcribed_text}"
+            try:
+                media_part = {
+                    "mime_type": "audio/wav", 
+                    "data": audio_bytes
+                }
+                model_transcribe = genai.GenerativeModel('gemini-2.5-flash')
+                resp = model_transcribe.generate_content([media_part, "この音声をそのまま文字起こししてください。文字起こし結果のみを出力してください。"])
+                transcribed_text = resp.text.strip()
+                st.session_state.processed_audio = audio_bytes
+                
+                if transcribed_text == "":
+                    st.warning("テキストを入力してください")
+                else:
+                    input_prompt = transcribed_text
+                    display_text = f"🎙️ {transcribed_text}"
+            except Exception as e:
+                st.session_state.processed_audio = audio_bytes  # リトライループ防止
+                st.warning("通信エラーが発生しました。時間をおいて再試行してください。")
 
 if input_prompt:
     # 1. ユーザー発言を画面に表示＆履歴保存
@@ -216,28 +227,38 @@ if input_prompt:
             sys_prompt_sentiment = 'あなたは日記テキストの感情を分析するシステムです。入力されたテキストを分析し、-1.0（極めてネガティブ）から1.0（極めてポジティブ）の範囲でスコア化してください。出力は必ず以下のJSONフォーマットのみとしてください。{"score": 数値, "reason": "判定の短い理由"}'
             model_sentiment = genai.GenerativeModel('gemini-2.5-flash', system_instruction=sys_prompt_sentiment, generation_config={"response_mime_type": "application/json"})
             resp_sentiment = model_sentiment.generate_content(input_prompt)
-            sentiment_data = json.loads(resp_sentiment.text)
-            st.session_state.sentiment_score = float(sentiment_data.get("score", 0.0))
-            st.session_state.sentiment_reason = sentiment_data.get("reason", "")
-        except Exception as e:
-            st.error(f"感情分析に失敗しました: {e}")
+            
+            try:
+                sentiment_data = json.loads(resp_sentiment.text)
+                st.session_state.sentiment_score = float(sentiment_data.get("score", 0.0))
+                st.session_state.sentiment_reason = sentiment_data.get("reason", "")
+            except (json.JSONDecodeError, ValueError) as json_err:
+                st.warning("AIによる判定に失敗しました")
+                st.session_state.sentiment_reason = "解析エラー（手動でスコアを入力してください）"
+                
+        except Exception as api_err:
+            st.warning("通信エラーが発生しました。時間をおいて再試行してください。")
+            st.session_state.sentiment_reason = "通信エラー（手動でスコアを入力してください）"
 
     # 2. Geminiの思考・応答プロセス
     with st.chat_message("assistant"):
         with st.spinner("冷静に分析中..."):
-            model_chat = genai.GenerativeModel('gemini-2.5-flash', system_instruction=SYSTEM_PROMPT)
-            
-            # Geminiのstart_chatには過去履歴を渡す
-            history_gemini = []
-            for msg in st.session_state.messages[:-1]: # 直前の発言以外
-                gemini_role = "user" if msg["role"] == "user" else "model"
-                history_gemini.append({"role": gemini_role, "parts": [msg["content"]]})
+            try:
+                model_chat = genai.GenerativeModel('gemini-2.5-flash', system_instruction=SYSTEM_PROMPT)
                 
-            chat_session = model_chat.start_chat(history=history_gemini)
-            
-            response = chat_session.send_message(input_prompt)
+                # Geminiのstart_chatには過去履歴を渡す
+                history_gemini = []
+                for msg in st.session_state.messages[:-1]: # 直前の発言以外
+                    gemini_role = "user" if msg["role"] == "user" else "model"
+                    history_gemini.append({"role": gemini_role, "parts": [msg["content"]]})
+                    
+                chat_session = model_chat.start_chat(history=history_gemini)
                 
-            st.write(response.text)
-            
-            # アシスタントの応答を履歴保存
-            st.session_state.messages.append({"role": "assistant", "content": response.text})
+                response = chat_session.send_message(input_prompt)
+                    
+                st.write(response.text)
+                
+                # アシスタントの応答を履歴保存
+                st.session_state.messages.append({"role": "assistant", "content": response.text})
+            except Exception as e:
+                st.warning("通信エラーが発生しました。時間をおいて再試行してください。")
