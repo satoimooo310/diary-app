@@ -12,3 +12,6 @@ __pycache__/
 
 # 運用スクリプト（絶対にアップロードしない）
 update_github.bat
+
+# 環境変数ファイル
+.env
