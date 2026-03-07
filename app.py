@@ -260,5 +260,8 @@ if input_prompt:
                 
                 # アシスタントの応答を履歴保存
                 st.session_state.messages.append({"role": "assistant", "content": response.text})
+                
+                # 感情スコアなどをサイドバーに即時反映させるために再描画
+                st.rerun()
             except Exception as e:
                 st.warning("通信エラーが発生しました。時間をおいて再試行してください。")
