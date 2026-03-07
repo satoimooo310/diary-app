@@ -82,12 +82,10 @@ if st.sidebar.button("💾 これを日記として保存"):
                 # Streamlit Cloud環境（Secretsが存在する）場合は即座にOAuthを使用する
                 # これにより、GCPメタデータサーバーへの無駄なアクセス（タイムアウトエラー）を防止
                 if "token" in st.secrets and "client_secret" in st.secrets:
-                    if not os.path.exists("client_secret.json"):
-                        with open("client_secret.json", "w", encoding="utf-8") as f:
-                            f.write(st.secrets["client_secret"])
-                    if not os.path.exists("token.json"):
-                        with open("token.json", "w", encoding="utf-8") as f:
-                            f.write(st.secrets["token"])
+                    with open("client_secret.json", "w", encoding="utf-8") as f:
+                        f.write(st.secrets["client_secret"])
+                    with open("token.json", "w", encoding="utf-8") as f:
+                        f.write(st.secrets["token"])
                     
                     client = gspread.oauth(
                         credentials_filename='client_secret.json',
