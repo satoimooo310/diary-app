@@ -1,5 +1,5 @@
 streamlit>=1.36.0
-google-generativeai
-gspread
-google-auth
-python-dotenv
+google-generativeai>=0.8.0
+gspread>=6.0.0
+google-auth>=2.29.0
+python-dotenv>=1.0.0
